@@ -1,0 +1,3 @@
+Este es un archivo de prueba para verificar la conexion con el repositorio.
+Fecha: 2026-02-16
+Repositorio: mcp-cicd-agent
