@@ -47,6 +47,41 @@ logs/
 # Environment Variables
 .env
 .env.local
+.env.*.local
+.env.*
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+*.der
+id_rsa
+id_ed25519
+id_ecdsa
+id_dsa
+
+# Credential and secret files
+credentials.json
+credentials.yaml
+credentials.yml
+secrets.json
+secrets.yaml
+secrets.yml
+*_credentials.json
+*_secrets.json
+service_account*.json
+
+# Cloud provider credentials
+.aws/
+.gcloud/
+.kube/config
+gcp-key*.json
+azure-credentials*.json
 
 # Temporary files
 *.log

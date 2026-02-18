@@ -28,6 +28,8 @@ from ..utils.validation import (  # Funciones de validación de inputs
     validate_dockerfile_path
 )
 from ..utils.logging import get_logger  # Logger estructurado
+from ..utils.state_manager import StateManager  # Persistencia de estado de deployments
+from ..models.deployment import DeploymentRecord, DeploymentStatus  # Modelos de deployment
 from ..exceptions import (  # Excepciones personalizadas
     DockerOperationError,
     BuildError,
@@ -153,7 +155,12 @@ def register_docker_tools(mcp: FastMCP) -> None:
         container_name: str,
         host_port: Optional[int] = None,
         container_port: int = 8000,
-        env_vars: Optional[Dict[str, str]] = None
+        env_vars: Optional[Dict[str, str]] = None,
+        repo_url: Optional[str] = None,
+        branch: Optional[str] = None,
+        commit_sha: Optional[str] = None,
+        project_type: Optional[str] = None,
+        deployment_id: Optional[str] = None
     ) -> dict:
         """
         Deploy Docker container with port conflict resolution.
@@ -168,9 +175,15 @@ def register_docker_tools(mcp: FastMCP) -> None:
             host_port: Host port to bind to (if None, auto-assigns from available range)
             container_port: Container internal port (default: 8000)
             env_vars: Optional environment variables as key-value pairs
+            repo_url: Git repository URL (used for state tracking and rollback)
+            branch: Git branch or ref that was deployed
+            commit_sha: Full commit SHA of the deployed code
+            project_type: Detected project type (docker, docker-compose, etc.)
+            deployment_id: Optional custom deployment ID (auto-generated if not provided)
 
         Returns:
             Dictionary containing:
+                - deployment_id: Deployment record ID (for rollback/tracking)
                 - container_id: Docker container ID
                 - container_name: Container name
                 - host_port: Assigned host port
@@ -189,7 +202,7 @@ def register_docker_tools(mcp: FastMCP) -> None:
             # Validate inputs
             validated_tag = validate_image_tag(image_tag)
             validated_name = validate_container_name(container_name)
-            validated_container_port = validate_port(container_port)
+            validated_container_port = validate_port(container_port, min_port=1)
 
             # Determine host port
             if host_port is None:
@@ -201,7 +214,7 @@ def register_docker_tools(mcp: FastMCP) -> None:
                 logger.info("auto_assigned_port", port=assigned_port)
             else:
                 # Use specified port (validate availability)
-                assigned_port = validate_port(host_port)
+                assigned_port = validate_port(host_port, min_port=1024)
 
                 if not is_port_available(assigned_port):
                     raise PortConflictError(
@@ -225,7 +238,33 @@ def register_docker_tools(mcp: FastMCP) -> None:
             # Refresh container status
             container.reload()
 
+            # Persist deployment record for rollback and audit trail
+            now = datetime.utcnow()
+            dep_id = deployment_id or f"dep-{now.strftime('%Y%m%d%H%M%S')}-{validated_name}"
+            image_name = validated_tag.split(":")[0]
+
+            record = DeploymentRecord(
+                deployment_id=dep_id,
+                repo_url=repo_url or "unknown",
+                branch=branch or "unknown",
+                commit_sha=commit_sha or "unknown",
+                project_type=project_type or "docker",
+                image_name=image_name,
+                image_tag=validated_tag,
+                container_name=validated_name,
+                container_id=container.id,
+                host_port=assigned_port,
+                container_port=validated_container_port,
+                status=DeploymentStatus.RUNNING,
+                created_at=now,
+                started_at=now,
+                completed_at=now,
+            )
+            state_manager = StateManager(settings.deployment_dir)
+            state_manager.save(record)
+
             result = {
+                "deployment_id": dep_id,
                 "container_id": container.id,
                 "container_name": validated_name,
                 "host_port": assigned_port,
@@ -236,6 +275,7 @@ def register_docker_tools(mcp: FastMCP) -> None:
 
             logger.info(
                 "deploy_container_completed",
+                deployment_id=dep_id,
                 container_id=container.id,
                 container_name=validated_name,
                 url=result["url"]

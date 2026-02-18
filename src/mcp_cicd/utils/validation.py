@@ -115,13 +115,13 @@ def validate_image_tag(tag: str) -> str:
     return f"{name}:{version}"
 
 
-def validate_port(port: int, min_port: int = 1024, max_port: int = 65535) -> int:
+def validate_port(port: int, min_port: int = 1, max_port: int = 65535) -> int:
     """
     Validate port number.
 
     Args:
         port: Port number to validate
-        min_port: Minimum allowed port (default: 1024 to avoid privileged ports)
+        min_port: Minimum allowed port (default: 1, callers enforce 1024 for host ports)
         max_port: Maximum allowed port (default: 65535)
 
     Returns:

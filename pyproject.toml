@@ -60,6 +60,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --cov=mcp_cicd --cov-report=term-missing"
+asyncio_mode = "auto"
 
 [tool.black]
 line-length = 100

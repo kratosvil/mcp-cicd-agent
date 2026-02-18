@@ -6,6 +6,7 @@ MCP tools for deployment lifecycle management.
 
 Implements stop_deployment and rollback tools.
 """
+from datetime import datetime  # Manejo de fechas y timestamps
 from typing import Optional  # Type hints para valores opcionales
 
 from mcp.server.fastmcp import FastMCP  # Framework FastMCP para registro de herramientas
@@ -24,7 +25,7 @@ from ..exceptions import (  # Excepciones personalizadas
     RollbackError,
     ValidationError
 )
-from ..models.deployment import DeploymentStatus  # Enums de estado de deployment
+from ..models.deployment import DeploymentRecord, DeploymentStatus  # Modelos y enums de deployment
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -172,7 +173,7 @@ def register_lifecycle_tools(mcp: FastMCP) -> None:
             logger.info(
                 "rollback_target_found",
                 previous_deployment_id=previous_deployment.deployment_id,
-                commit_sha=previous_deployment.short_sha
+                commit_sha=previous_deployment.commit_sha[:7]
             )
 
             # Get Docker client
@@ -194,20 +195,43 @@ def register_lifecycle_tools(mcp: FastMCP) -> None:
                     )
 
             # Generate new rollback deployment ID
-            from datetime import datetime
-            rollback_id = f"dep-{datetime.utcnow().strftime('%Y%m%d')}-rollback-{previous_deployment.short_sha}"
+            prev_short_sha = previous_deployment.commit_sha[:7]
+            rollback_id = f"dep-{datetime.utcnow().strftime('%Y%m%d')}-rollback-{prev_short_sha}"
 
             # Create new container name for rollback
-            rollback_container_name = f"{previous_deployment.image_name}-rollback-{previous_deployment.short_sha}-p{failed_deployment.host_port if deployment_id else previous_deployment.host_port}"
+            rollback_container_name = f"{previous_deployment.image_name}-rollback-{prev_short_sha}-p{failed_deployment.host_port if deployment_id else previous_deployment.host_port}"
 
             # Redeploy previous image
+            rollback_host_port = failed_deployment.host_port if deployment_id else previous_deployment.host_port
             container = deploy_container_util(
                 client=client,
                 image_tag=previous_deployment.image_tag,
                 container_name=rollback_container_name,
-                host_port=failed_deployment.host_port if deployment_id else previous_deployment.host_port,
+                host_port=rollback_host_port,
                 container_port=previous_deployment.container_port
             )
+
+            # Persist rollback deployment record
+            now = datetime.utcnow()
+            rollback_record = DeploymentRecord(
+                deployment_id=rollback_id,
+                repo_url=target_repo_url,
+                branch=previous_deployment.branch,
+                commit_sha=previous_deployment.commit_sha,
+                project_type=previous_deployment.project_type,
+                image_name=previous_deployment.image_name,
+                image_tag=previous_deployment.image_tag,
+                container_name=rollback_container_name,
+                container_id=container.id,
+                host_port=rollback_host_port,
+                container_port=previous_deployment.container_port,
+                status=DeploymentStatus.RUNNING,
+                created_at=now,
+                started_at=now,
+                completed_at=now,
+                rollback_from=deployment_id,
+            )
+            state_manager.save(rollback_record)
 
             result = {
                 "rollback_deployment_id": rollback_id,
@@ -215,18 +239,18 @@ def register_lifecycle_tools(mcp: FastMCP) -> None:
                 "previous_deployment_id": previous_deployment.deployment_id,
                 "container_name": rollback_container_name,
                 "container_id": container.id,
-                "host_port": failed_deployment.host_port if deployment_id else previous_deployment.host_port,
-                "url": f"http://localhost:{failed_deployment.host_port if deployment_id else previous_deployment.host_port}",
+                "host_port": rollback_host_port,
+                "url": f"http://localhost:{rollback_host_port}",
                 "commit_sha": previous_deployment.commit_sha,
-                "short_sha": previous_deployment.short_sha,
-                "message": f"Rolled back to deployment {previous_deployment.deployment_id} (commit {previous_deployment.short_sha})"
+                "short_sha": previous_deployment.commit_sha[:7],
+                "message": f"Rolled back to deployment {previous_deployment.deployment_id} (commit {previous_deployment.commit_sha[:7]})"
             }
 
             logger.info(
                 "rollback_completed",
                 rollback_deployment_id=rollback_id,
                 previous_deployment_id=previous_deployment.deployment_id,
-                commit_sha=previous_deployment.short_sha
+                commit_sha=previous_deployment.commit_sha[:7]
             )
 
             return result

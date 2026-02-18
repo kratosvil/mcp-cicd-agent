@@ -5,7 +5,9 @@ Git operations utilities using GitPython.
 
 Handles repository cloning, checkout, and metadata extraction.
 """
+import os
 import re  # Expresiones regulares para validación de URLs y nombres
+import stat
 from dataclasses import dataclass  # Crear clases de datos simples
 from datetime import datetime  # Manejo de fechas y timestamps
 from pathlib import Path  # Manejo moderno de rutas de archivos
@@ -18,6 +20,14 @@ from ..exceptions import CloneError, CheckoutError, GitOperationError  # Excepci
 from .logging import get_logger  # Logger estructurado
 
 logger = get_logger(__name__)
+
+
+def _force_remove(path):
+    import shutil
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            os.chmod(os.path.join(root, file), stat.S_IWRITE)
+    shutil.rmtree(path)
 
 
 @dataclass
@@ -291,7 +301,8 @@ def prepare_repository(
         validate_git_url(repo_url, allowed_hosts)
 
     # Clone or update repository to temporary location first
-    temp_path = workspace_manager.base_dir / "temp_clone"
+    import uuid
+    temp_path = workspace_manager.base_dir / f"temp_{uuid.uuid4().hex[:8]}"
     repo = clone_or_update_repo(repo_url, temp_path, branch)
 
     # Checkout specific ref if needed
@@ -300,16 +311,20 @@ def prepare_repository(
 
     # Extract commit metadata
     metadata = extract_commit_metadata(repo)
+    repo.git.clear_cache()
+    repo.__del__()
 
     # Create final workspace with commit SHA
     final_path = workspace_manager.create(repo_url, metadata.full_sha)
 
-    # Move repository to final location if different
+    # Copy repository to final location if different (shutil.move fails on Windows
+    # with read-only .git objects; copytree + rmtree is safer cross-platform)
     if temp_path != final_path:
         import shutil
         if final_path.exists():
-            shutil.rmtree(final_path)
-        shutil.move(str(temp_path), str(final_path))
+            _force_remove(final_path)
+        shutil.copytree(str(temp_path), str(final_path), dirs_exist_ok=True)
+        _force_remove(str(temp_path))
 
     logger.info(
         "repository_prepared",

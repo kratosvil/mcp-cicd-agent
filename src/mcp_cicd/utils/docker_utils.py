@@ -266,18 +266,23 @@ def deploy_container(
             container_port=container_port
         )
 
+        # Strip RUN_AS_USER if accidentally passed — container user is set by
+        # the image itself; accepting it from env_vars would allow a caller to
+        # force root execution and bypass no-new-privileges.
+        safe_env = dict(env_vars or {})
+        safe_env.pop("RUN_AS_USER", None)
+
         container = client.containers.run(
             image=image_tag,
             name=container_name,
             detach=True,  # Run in background
             ports={f"{container_port}/tcp": ("127.0.0.1", host_port)},  # Localhost only!
-            environment=env_vars or {},
+            environment=safe_env,
             labels={
                 "managed-by": "mcp-cicd",
                 "app": container_name
             },
             restart_policy={"Name": "unless-stopped"},
-            user="1000:1000",  # Non-root user
             mem_limit="512m",  # Memory limit
             security_opt=["no-new-privileges:true"],  # No privilege escalation
         )
