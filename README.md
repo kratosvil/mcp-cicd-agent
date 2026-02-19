@@ -12,6 +12,10 @@ MCP server that lets LLM agents run complete Docker CI/CD pipelines — from Git
 
 **Give Claude a Git repo URL — it clones, builds, deploys, and validates the container for you**
 
+<br/>
+
+![MCP CI/CD Agent Demo](clean_cropped.gif)
+
 </div>
 
 ---
